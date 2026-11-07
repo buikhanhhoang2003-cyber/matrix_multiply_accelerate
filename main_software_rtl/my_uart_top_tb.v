@@ -18,7 +18,7 @@ always #10 clk = !clk;
 
 my_uart_top dut(
     .clk_50mhz(clk), .reset_n(rst_n), .key_n({3'b111, mode_sw_n}),
-    .uart_rx(rs232_rx), .uart_tx(rs232_tx),
+    .gpio(rs232_rx), .uart_tx(rs232_tx),
     .seg_n(seg_n), .digit_n(digit_n)
 );
 
