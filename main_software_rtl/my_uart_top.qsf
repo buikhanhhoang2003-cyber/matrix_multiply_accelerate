@@ -1,5 +1,6 @@
 # Project sources and timing; hardware pins come from the full board QSF.
 # Keep top-level port names aligned with cyclone_iv_board_v3.qsf.
+# USB-to-TTL UART uses uart_tx (PIN_114) and gpio (PIN_111) for reception.
 source cyclone_iv_board_v3.qsf
 
 set_global_assignment -name TOP_LEVEL_ENTITY my_uart_top
