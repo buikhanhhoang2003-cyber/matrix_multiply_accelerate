@@ -1,88 +1,152 @@
 `timescale 1ns / 1ps
 
-// 50 MHz, 9600 baud, 8 data bits, no parity, one stop bit.
-// DIP switch 1 ON sends A continuously; OFF displays received ASCII digits.
-module my_uart_top(
-    input clk_50mhz,
-    input reset_n,
-    input [3:0] key_n,
-    input uart_rx,
-    output uart_tx,
-    output reg [7:0] seg_n,
-    output [3:0] digit_n
+module my_uart_top_tb;
+localparam integer BIT_NS = 5208 * 20;
+localparam [79:0] DIGIT_SEGMENTS = 80'h90_80_f8_82_92_99_b0_a4_f9_c0;
+
+reg clk = 1'b0;
+reg rst_n = 1'b0;
+reg mode_sw_n = 1'b1;
+reg rs232_rx = 1'b1;
+reg expect_tx_idle = 1'b1;
+wire rs232_tx;
+wire [7:0] seg_n;
+wire [3:0] digit_n;
+integer i;
+
+always #10 clk = !clk;
+
+my_uart_top dut(
+    .clk_50mhz(clk), .reset_n(rst_n), .key_n({3'b111, mode_sw_n}),
+    .gpio(rs232_rx), .uart_tx(rs232_tx),
+    .seg_n(seg_n), .digit_n(digit_n)
 );
 
-reg [1:0] reset_sync;
-reg [1:0] mode_sync;
-wire reset_ready = reset_sync[1];
-wire tx_mode = !mode_sync[1];
+always @(negedge rs232_tx)
+    if (rst_n && expect_tx_idle)
+        $fatal(1, "UART transmitted in receive mode");
 
-// Assert reset immediately, release it and sample the switch synchronously.
-always @(posedge clk_50mhz or negedge reset_n) begin
-    if (!reset_n) begin
-        reset_sync <= 2'b00;
-        mode_sync <= 2'b11;
-    end else begin
-        reset_sync <= {reset_sync[0], 1'b1};
-        mode_sync <= {mode_sync[0], key_n[0]};
+task send_frame;
+    input [7:0] data;
+    input stop_bit;
+    integer bit_index;
+    begin
+        rs232_rx = 1'b0;
+        #(BIT_NS);
+        for (bit_index = 0; bit_index < 8; bit_index = bit_index + 1) begin
+            rs232_rx = data[bit_index];
+            #(BIT_NS);
+        end
+        rs232_rx = stop_bit;
+        #(BIT_NS);
+        rs232_rx = 1'b1;
     end
-end
+endtask
 
-wire rx_bps_start, tx_bps_start;
-wire rx_clk_bps, tx_clk_bps;
-wire [7:0] rx_data;
-wire rx_valid;
-
-speed_select speed_rx(
-    .clk(clk_50mhz), .rst_n(reset_ready),
-    .bps_start(rx_bps_start), .clk_bps(rx_clk_bps)
-);
-
-my_uart_rx receiver(
-    .clk(clk_50mhz), .rst_n(reset_ready), .rx_enable(!tx_mode),
-    .rs232_rx(uart_rx), .rx_data(rx_data), .rx_valid(rx_valid),
-    .clk_bps(rx_clk_bps), .bps_start(rx_bps_start)
-);
-
-speed_select speed_tx(
-    .clk(clk_50mhz), .rst_n(reset_ready),
-    .bps_start(tx_bps_start), .clk_bps(tx_clk_bps)
-);
-
-my_uart_tx transmitter(
-    .clk(clk_50mhz), .rst_n(reset_ready),
-    .tx_data(8'h41), .tx_start(tx_mode), .rs232_tx(uart_tx),
-    .clk_bps(tx_clk_bps), .bps_start(tx_bps_start)
-);
-
-reg [3:0] digit;
-reg digit_valid;
-always @(posedge clk_50mhz or negedge reset_ready) begin
-    if (!reset_ready) begin
-        digit <= 4'd0;
-        digit_valid <= 1'b0;
-    end else if (!tx_mode && rx_valid && rx_data >= 8'h30 && rx_data <= 8'h39) begin
-        digit <= rx_data[3:0];
-        digit_valid <= 1'b1;
+task check_display;
+    input [7:0] segments;
+    begin
+        if (digit_n !== 4'b1110 || seg_n !== segments)
+            $fatal(1, "Display: digits=%b segments=%h, expected DIG1 / %h",
+                   digit_n, seg_n, segments);
     end
+endtask
+
+task read_a;
+    input switch_off;
+    reg [7:0] data;
+    integer bit_index;
+    begin
+        @(negedge rs232_tx);
+        #(BIT_NS / 2);
+        if (rs232_tx !== 1'b0)
+            $fatal(1, "TX start bit too short");
+        if (switch_off)
+            mode_sw_n = 1'b1;
+        for (bit_index = 0; bit_index < 8; bit_index = bit_index + 1) begin
+            #(BIT_NS);
+            data[bit_index] = rs232_tx;
+        end
+        #(BIT_NS);
+        if (data !== 8'h41 || rs232_tx !== 1'b1)
+            $fatal(1, "Expected A with a valid stop bit, got %h", data);
+        #(BIT_NS / 2);
+    end
+endtask
+
+initial begin
+    #100;
+    rst_n = 1'b1;
+    #200;
+    if (digit_n !== 4'b1111 || rs232_tx !== 1'b1)
+        $fatal(1, "Reset must leave the display blank and TX idle");
+
+    // A non-clock-aligned stream with exactly one stop bit between digits.
+    #137;
+    for (i = 0; i < 10; i = i + 1) begin
+        send_frame(8'h30 + i, 1'b1);
+        check_display(DIGIT_SEGMENTS[i*8 +: 8]);
+    end
+    send_frame(8'h41, 1'b1);
+    send_frame(8'h09, 1'b1);
+    send_frame(8'h0d, 1'b1);
+    send_frame(8'h0a, 1'b1);
+    check_display(8'h90);
+
+    // A bad stop bit and a short start glitch must not update the display.
+    send_frame(8'h36, 1'b0);
+    #(BIT_NS);
+    check_display(8'h90);
+    rs232_rx = 1'b0;
+    #(BIT_NS / 4);
+    rs232_rx = 1'b1;
+    #(BIT_NS);
+    check_display(8'h90);
+    send_frame(8'h32, 1'b1);
+    check_display(8'ha4);
+
+    expect_tx_idle = 1'b0;
+    mode_sw_n = 1'b0;
+    #200;
+    if (digit_n !== 4'b1111)
+        $fatal(1, "Transmit mode must blank the display");
+    fork
+        begin
+            read_a(1'b0);
+            read_a(1'b0);
+            // Switching off mid-frame must still send all of this A.
+            read_a(1'b1);
+        end
+        send_frame(8'h37, 1'b1);
+    join
+    expect_tx_idle = 1'b1;
+    #(BIT_NS * 2);
+    check_display(8'ha4);
+    send_frame(8'h35, 1'b1);
+    check_display(8'h92);
+
+    // Reset in the middle of transmission, then receive again.
+    expect_tx_idle = 1'b0;
+    mode_sw_n = 1'b0;
+    @(negedge rs232_tx);
+    #(BIT_NS * 2);
+    rst_n = 1'b0;
+    mode_sw_n = 1'b1;
+    #100;
+    if (rs232_tx !== 1'b1 || digit_n !== 4'b1111)
+        $fatal(1, "Reset failed during transmission");
+    rst_n = 1'b1;
+    #200;
+    expect_tx_idle = 1'b1;
+    send_frame(8'h34, 1'b1);
+    check_display(8'h99);
+
+    $display("PASS: digits 0-9, continuous A, mode changes, invalid frames and reset");
+    $finish;
 end
 
-// Only DIG1 is enabled; all segments and digit selects are active low.
-assign digit_n = (digit_valid && !tx_mode) ? 4'b1110 : 4'b1111;
-always @* begin
-    case (digit)
-        4'd0: seg_n = 8'hc0;
-        4'd1: seg_n = 8'hf9;
-        4'd2: seg_n = 8'ha4;
-        4'd3: seg_n = 8'hb0;
-        4'd4: seg_n = 8'h99;
-        4'd5: seg_n = 8'h92;
-        4'd6: seg_n = 8'h82;
-        4'd7: seg_n = 8'hf8;
-        4'd8: seg_n = 8'h80;
-        4'd9: seg_n = 8'h90;
-        default: seg_n = 8'hff;
-    endcase
+initial begin
+    #(BIT_NS * 1000);
+    $fatal(1, "Simulation timed out");
 end
-
 endmodule
