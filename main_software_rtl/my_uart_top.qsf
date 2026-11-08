@@ -9,4 +9,5 @@ set_global_assignment -name VERILOG_FILE my_uart_top.v
 set_global_assignment -name VERILOG_FILE my_uart_rx.v
 set_global_assignment -name VERILOG_FILE my_uart_tx.v
 set_global_assignment -name VERILOG_FILE speed_select.v
+set_global_assignment -name VERILOG_FILE matrix_systolic.v
 set_global_assignment -name SDC_FILE my_uart_top.sdc
