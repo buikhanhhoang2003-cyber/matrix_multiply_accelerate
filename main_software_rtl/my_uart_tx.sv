@@ -1,20 +1,20 @@
 `timescale 1ns / 1ps
 
 module my_uart_tx(
-    input clk,
-    input rst_n,
-    input [7:0] tx_data,
-    input tx_start,
-    output reg rs232_tx,
-    input clk_bps,
-    output reg bps_start
+    input logic clk,
+    input logic rst_n,
+    input logic [7:0] tx_data,
+    input logic tx_start,
+    output logic rs232_tx,
+    input logic clk_bps,
+    output logic bps_start
 );
 
-reg [7:0] data;
-reg [3:0] num;
+logic [7:0] data;
+logic [3:0] num;
 
 // Accept requests only while idle, so changing mode cannot truncate a frame.
-always @(posedge clk or negedge rst_n) begin
+always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
         bps_start <= 1'b0;
         rs232_tx <= 1'b1;
