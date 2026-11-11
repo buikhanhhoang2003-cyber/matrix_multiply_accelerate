@@ -1,36 +1,36 @@
 `timescale 1ns / 1ps
 
 module my_uart_top_tb;
-localparam integer CLKS_PER_BIT = 32;
-localparam integer BIT_NS = CLKS_PER_BIT * 20;
-reg clk = 0;
+localparam int CLKS_PER_BIT = 32;
+localparam int BIT_NS = CLKS_PER_BIT * 20;
+logic clk = 0;
 always #10 clk = !clk;
-reg reset_n = 0;
-reg [3:0] key_n = 4'hf;
-reg gpio = 1;
-wire uart_tx;
-wire [7:0] seg_n;
-wire [3:0] digit_n;
-wire [3:0] led_n;
-reg [2:0] ready_flags = 0;
-reg signed [15:0] a [0:63], b [0:63];
+logic reset_n = 0;
+logic [3:0] key_n = 4'hf;
+logic gpio = 1;
+logic uart_tx;
+logic [7:0] seg_n;
+logic [3:0] digit_n;
+logic [3:0] led_n;
+logic [2:0] ready_flags = 0;
+logic signed [15:0] a [0:63], b [0:63];
 longint signed expected [0:63];
-reg [7:0] received [0:19999];
-integer received_count = 0, consumed_count = 0;
-integer row, col, k, i, test_case, before_count;
+logic [7:0] received [0:19999];
+int received_count = 0, consumed_count = 0;
+int row, col, k, i, test_case, before_count;
 
 my_uart_top #(.CLKS_PER_BIT(CLKS_PER_BIT), .DEBOUNCE_CYCLES(4)) dut(
     .clk_50mhz(clk), .reset_n(reset_n), .key_n(key_n), .gpio(gpio),
     .uart_tx(uart_tx), .led_n(led_n), .seg_n(seg_n), .digit_n(digit_n)
 );
 
-// Decode the physical TX wire independently of the transmitter internals.
+// Decode the physical TX logic independently of the transmitter internals.
 initial forever begin : uart_monitor
-    reg [7:0] data;
+    logic [7:0] data;
     @(negedge uart_tx);
     #(BIT_NS / 2);
     if (uart_tx !== 0) $fatal(1, "Invalid TX start bit");
-    for (integer bit_index = 0; bit_index < 8; bit_index++) begin
+    for (int bit_index = 0; bit_index < 8; bit_index++) begin
         #(BIT_NS);
         data[bit_index] = uart_tx;
     end
@@ -46,7 +46,7 @@ task send_byte(input [7:0] data);
     begin
         gpio = 0;
         #(BIT_NS);
-        for (integer bit_index = 0; bit_index < 8; bit_index++) begin
+        for (int bit_index = 0; bit_index < 8; bit_index++) begin
             gpio = data[bit_index];
             #(BIT_NS);
         end
@@ -56,12 +56,12 @@ task send_byte(input [7:0] data);
 endtask
 
 task send_text(input string text);
-    for (integer pos = 0; pos < text.len(); pos++) send_byte(text[pos]);
+    for (int pos = 0; pos < text.len(); pos++) send_byte(text[pos]);
 endtask
 
 task expect_text(input string text);
     begin
-        for (integer pos = 0; pos < text.len(); pos++) begin
+        for (int pos = 0; pos < text.len(); pos++) begin
             while (received_count <= consumed_count) @(negedge clk);
             if (received[consumed_count] !== text[pos])
                 $fatal(1, "UART byte %0d: got %h expected %h in '%s'",
@@ -71,7 +71,7 @@ task expect_text(input string text);
     end
 endtask
 
-task select_mode(input integer mode);
+task select_mode(input int mode);
     begin
         case (mode)
             0: key_n = 4'b1111;
@@ -82,8 +82,8 @@ task select_mode(input integer mode);
     end
 endtask
 
-task check_status(input integer mode);
-    reg [7:0] expected_segments;
+task check_status(input int mode);
+    logic [7:0] expected_segments;
     begin
         case (mode)
             1: expected_segments = 8'hf9;
@@ -110,8 +110,8 @@ task enter_idle;
     end
 endtask
 
-task load_matrix(input integer matrix_b);
-    integer value;
+task load_matrix(input int matrix_b);
+    int value;
     begin
         select_mode(matrix_b ? 2 : 1);
         expect_text(matrix_b ? "\015\nB:64\015\n" : "\015\nA:64\015\n");
@@ -119,7 +119,7 @@ task load_matrix(input integer matrix_b);
         ready_flags[2] = 0;
         check_leds();
         check_status(matrix_b ? 2 : 1);
-        for (integer address = 0; address < 64; address++) begin
+        for (int address = 0; address < 64; address++) begin
             value = matrix_b ? $signed(b[address]) : $signed(a[address]);
             if (address == 5 && value >= 0)
                 send_text($sformatf("+000%0d", value));
@@ -152,10 +152,10 @@ task calculate_reference;
     end
 endtask
 
-task expect_matrix(input integer matrix_id);
+task expect_matrix(input int matrix_id);
     longint signed value;
     begin
-        for (integer address = 0; address < 64; address++) begin
+        for (int address = 0; address < 64; address++) begin
             case (matrix_id)
                 1: value = longint'(a[address]);
                 2: value = longint'(b[address]);
