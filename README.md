@@ -19,7 +19,7 @@ Hệ thống sử dụng RISC-V làm bộ xử lý điều khiển và PE/MAC Ar
 | Embedded Multipliers 18×18 | 15 |
 | Embedded RAM | 270 Kbit |
 | CPU | PicoRV32 (RV32I) |
-| Ngôn ngữ | Verilog, C, Python |
+| Ngôn ngữ | SystemVerilog (RTL), C, Python |
 | Công cụ | Quartus II, ModelSim, RISC-V GCC |
 
 Do tài nguyên FPGA hạn chế, thiết kế ưu tiên **2×2 PE Array (4 MAC)** và tái sử dụng phần cứng thay vì triển khai 64 PE song song.
