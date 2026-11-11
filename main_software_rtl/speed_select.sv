@@ -1,16 +1,16 @@
 `timescale 1ns / 1ps
 
 module speed_select #(
-    parameter integer CLKS_PER_BIT = 5208
+    parameter int CLKS_PER_BIT = 5208
 )(
-    input clk,
-    input rst_n,
-    input bps_start,
-    output reg clk_bps
+    input logic clk,
+    input logic rst_n,
+    input logic bps_start,
+    output logic clk_bps
 );
 
-reg [12:0] count;
-always @(posedge clk or negedge rst_n) begin
+logic [12:0] count;
+always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
         count <= 0;
         clk_bps <= 0;
