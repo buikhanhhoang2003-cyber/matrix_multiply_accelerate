@@ -1,28 +1,28 @@
 `timescale 1ns / 1ps
 
 module my_uart_rx(
-    input clk,
-    input rst_n,
-    input rx_enable,
-    input rs232_rx,
-    output reg [7:0] rx_data,
-    output reg rx_valid,
-    input clk_bps,
-    output reg bps_start
+    input logic clk,
+    input logic rst_n,
+    input logic rx_enable,
+    input logic rs232_rx,
+    output logic [7:0] rx_data,
+    output logic rx_valid,
+    input logic clk_bps,
+    output logic bps_start
 );
 
-reg [2:0] rx_sync;
-reg [7:0] data;
-reg [3:0] num;
+logic [2:0] rx_sync;
+logic [7:0] data;
+logic [3:0] num;
 
-always @(posedge clk or negedge rst_n) begin
+always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n)
         rx_sync <= 3'b111;
     else
         rx_sync <= {rx_sync[1:0], rs232_rx};
 end
 
-always @(posedge clk or negedge rst_n) begin
+always_ff @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
         bps_start <= 1'b0;
         rx_data <= 8'd0;
