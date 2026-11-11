@@ -2,23 +2,24 @@
 
 // USB-to-TTL UART: RXD to PIN_114, TXD to PIN_111, common GND, 3.3 V logic.
 module my_uart_top #(
-    parameter integer CLKS_PER_BIT = 5208,
-    parameter integer DEBOUNCE_CYCLES = 500000
+    parameter int CLKS_PER_BIT = 5208,
+    parameter int DEBOUNCE_CYCLES = 500000
 )(
-    input clk_50mhz,
-    input reset_n,
-    input [3:0] key_n,
-    input gpio,
-    output uart_tx,
-    output [3:0] led_n,
-    output reg [7:0] seg_n,
-    output [3:0] digit_n
+    input logic clk_50mhz,
+    input logic reset_n,
+    input logic [3:0] key_n,
+    input logic gpio,
+    output logic uart_tx,
+    output logic [3:0] led_n,
+    output logic [7:0] seg_n,
+    output logic [3:0] digit_n
 );
 
-reg [1:0] reset_sync;
-reg [3:0] keys_meta, keys_sync;
-wire rst_n = reset_sync[1];
-always @(posedge clk_50mhz or negedge reset_n) begin
+logic [1:0] reset_sync;
+logic [3:0] keys_meta, keys_sync;
+logic rst_n;
+assign rst_n = reset_sync[1];
+always_ff @(posedge clk_50mhz or negedge reset_n) begin
     if (!reset_n) begin
         reset_sync <= 0;
         keys_meta <= 4'hf;
@@ -31,13 +32,14 @@ always @(posedge clk_50mhz or negedge reset_n) begin
 end
 
 // Higher-numbered switches take priority if more than one is ON.
-wire [1:0] requested_mode = !keys_sync[2] ? 2'd3 :
+logic [1:0] requested_mode;
+assign requested_mode = !keys_sync[2] ? 2'd3 :
                             !keys_sync[1] ? 2'd2 :
                             !keys_sync[0] ? 2'd1 : 2'd0;
-reg [1:0] mode_candidate, selected_mode, active_mode;
-reg [18:0] debounce_count;
+logic [1:0] mode_candidate, selected_mode, active_mode;
+logic [18:0] debounce_count;
 assign digit_n = active_mode == 0 ? 4'hf : 4'b1110;
-always @* begin
+always_comb begin
     case (active_mode)
         2'd1: seg_n = 8'hf9;
         2'd2: seg_n = 8'ha4;
@@ -46,7 +48,7 @@ always @* begin
     endcase
 end
 
-always @(posedge clk_50mhz or negedge rst_n) begin
+always_ff @(posedge clk_50mhz or negedge rst_n) begin
     if (!rst_n) begin
         mode_candidate <= 0;
         selected_mode <= 0;
@@ -65,17 +67,18 @@ localparam MODE_IDLE = 4'd0, MESSAGE = 4'd1, INPUT = 4'd2,
            WAIT_CORE = 4'd3, READ_VALUE = 4'd4, LATCH_VALUE = 4'd5,
            CONVERT = 4'd6, PRINT_NUMBER = 4'd7,
            PRINT_SEPARATOR = 4'd8, PRINT_LF = 4'd9;
-reg [3:0] state, message_next;
-// Protocol strings use an octal carriage return for portable Verilog parsing.
-reg [127:0] message;
-reg [3:0] message_left;
+logic [3:0] state, message_next;
+// Protocol strings use an octal carriage return for portable SystemVerilog parsing.
+logic [127:0] message;
+logic [3:0] message_left;
 
-wire rx_bps_start, tx_bps_start, rx_clk_bps, tx_clk_bps;
-wire [7:0] rx_data;
-wire rx_valid;
-reg [7:0] tx_data;
-reg tx_start;
-wire tx_ready = !tx_bps_start && !tx_start;
+logic rx_bps_start, tx_bps_start, rx_clk_bps, tx_clk_bps;
+logic [7:0] rx_data;
+logic rx_valid;
+logic [7:0] tx_data;
+logic tx_start;
+logic tx_ready;
+assign tx_ready = !tx_bps_start && !tx_start;
 
 speed_select #(.CLKS_PER_BIT(CLKS_PER_BIT)) speed_rx(
     .clk(clk_50mhz), .rst_n(rst_n),
@@ -97,13 +100,13 @@ my_uart_tx transmitter(
     .clk_bps(tx_clk_bps), .bps_start(tx_bps_start)
 );
 
-reg load_we, load_b, core_start;
-reg [5:0] load_addr, read_addr;
-reg [1:0] print_matrix;
-reg signed [15:0] load_data;
-wire core_busy, core_done;
-wire signed [34:0] read_data;
-matrix_systolic matrix(
+logic load_we, load_b, core_start;
+logic [5:0] load_addr, read_addr;
+logic [1:0] print_matrix;
+logic signed [15:0] load_data;
+logic core_busy, core_done;
+logic signed [34:0] read_data;
+matrix_multiply matrix(
     .clk(clk_50mhz), .rst_n(rst_n),
     .load_we(load_we), .load_b(load_b), .load_addr(load_addr),
     .load_data(load_data), .start(core_start), .busy(core_busy),
@@ -111,38 +114,43 @@ matrix_systolic matrix(
     .read_addr(read_addr), .read_data(read_data)
 );
 
-reg a_valid, b_valid, c_valid;
+logic a_valid, b_valid, c_valid;
 assign led_n = ~{1'b0, c_valid, b_valid, a_valid};
-reg [5:0] input_count;
-reg token_started, have_digits, negative;
-reg [15:0] magnitude;
-wire is_digit = rx_data >= 8'h30 && rx_data <= 8'h39;
-wire is_separator = rx_data == 8'h20 || rx_data == 8'h2c ||
+logic [5:0] input_count;
+logic token_started, have_digits, negative;
+logic [15:0] magnitude;
+logic is_digit;
+assign is_digit = rx_data >= 8'h30 && rx_data <= 8'h39;
+logic is_separator;
+assign is_separator = rx_data == 8'h20 || rx_data == 8'h2c ||
                     rx_data == 8'h09 || rx_data == 8'h0a || rx_data == 8'h0d;
-wire is_sign = rx_data == 8'h2d || rx_data == 8'h2b;
-wire [19:0] decimal_next = ({4'd0, magnitude} << 3) +
+logic is_sign;
+assign is_sign = rx_data == 8'h2d || rx_data == 8'h2b;
+logic [19:0] decimal_next;
+assign decimal_next = ({4'd0, magnitude} << 3) +
                            ({4'd0, magnitude} << 1) + {16'd0, rx_data[3:0]};
-wire number_error = (is_digit && decimal_next > (negative ? 20'd32768 : 20'd32767)) ||
+logic number_error;
+assign number_error = (is_digit && decimal_next > (negative ? 20'd32768 : 20'd32767)) ||
                     (is_sign && token_started) ||
                     (is_separator && token_started && !have_digits) ||
                     (!is_digit && !is_sign && !is_separator);
 
-reg [34:0] binary;
-reg [43:0] bcd, bcd_adjusted;
-reg [5:0] bit_count;
-reg [3:0] digit_index;
-reg negative_pending, leading_zero;
-integer decimal_digit;
+logic [34:0] binary;
+logic [43:0] bcd, bcd_adjusted;
+logic [5:0] bit_count;
+logic [3:0] digit_index;
+logic negative_pending, leading_zero;
+int decimal_digit;
 
 // Shift/add-3 converts one bit per clock without a large hardware divider.
-always @* begin
+always_comb begin
     bcd_adjusted = bcd;
     for (decimal_digit = 0; decimal_digit < 11; decimal_digit = decimal_digit + 1)
         if (bcd[decimal_digit*4 +: 4] >= 5)
             bcd_adjusted[decimal_digit*4 +: 4] = bcd[decimal_digit*4 +: 4] + 4'd3;
 end
 
-always @(posedge clk_50mhz or negedge rst_n) begin
+always_ff @(posedge clk_50mhz or negedge rst_n) begin
     if (!rst_n) begin
         state <= MESSAGE;
         message <= "READY\015\n";
