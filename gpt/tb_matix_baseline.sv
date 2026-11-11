@@ -3,20 +3,20 @@
 
 module tb_matrix_baseline;
 
-    reg clk = 0;
+    logic clk = 0;
     always #5 clk = ~clk;  // 100 MHz
 
-    reg rst_n = 0;
-    reg start = 0;
-    reg [5:0] c_addr = 0;
-    wire [35:0] c_data;
-    wire done;
+    logic rst_n = 0;
+    logic start = 0;
+    logic [5:0] c_addr = 0;
+    logic [35:0] c_data;
+    logic done;
 
-    reg signed [15:0] ref_a [0:63];
-    reg signed [15:0] ref_b [0:63];
-    reg signed [63:0] expected [0:63];
+    logic signed [15:0] ref_a [0:63];
+    logic signed [15:0] ref_b [0:63];
+    logic signed [63:0] expected [0:63];
 
-    integer row, col, k, cycles, errors;
+    int row, col, k, cycles, errors;
 
     // Instantiate DUT
     matrix_baseline dut (
