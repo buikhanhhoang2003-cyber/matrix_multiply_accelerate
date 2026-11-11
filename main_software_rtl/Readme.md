@@ -307,3 +307,5 @@ All RTL and testbench sources use SystemVerilog; compile with `-g2012`. Quartus 
 - **No new C after DONE:** DIP3 must go OFF and ON again to request a new result.
 - **Wrong segments:** check the fitted pins, common-anode polarity and your PCB revision.
 - **Ready LEDs stay OFF:** a stage number alone does not mean a matrix is ready. LED1/2 require all 64 valid values, and LED3 requires a successful multiplication. Check UART errors and the LED pin assignments above.
+
+
