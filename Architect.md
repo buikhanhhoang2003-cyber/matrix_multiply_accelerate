@@ -256,9 +256,9 @@ Con số này chưa bao gồm load/store, BRAM access latency, pipeline và FSM 
 
 | Thành viên | Module | Deliverable |
 |---|---|---|
-| **Huy** | MAC + PE Array | `mac.v`, `pe_array.v`, testbench |
-| **Cảnh** | FSM + Tiling + Buffer | `matrix_controller.v`, `matrix_buffer.v`, testbench |
-| **Hoàng** | Bus + MMIO + SoC Top | `accelerator_mmio.v`, `soc_top.v` |
+| **Huy** | MAC + PE Array | `mac.sv`, `pe_array.sv`, testbench |
+| **Cảnh** | FSM + Tiling + Buffer | `matrix_controller.sv`, `matrix_buffer.sv`, testbench |
+| **Hoàng** | Bus + MMIO + SoC Top | `accelerator_mmio.sv`, `soc_top.sv` |
 | **Lê** | PicoRV32 + UART + Firmware | Quartus CPU project, `main.c`, golden model |
 
 ### Thứ tự tích hợp
