@@ -1,6 +1,33 @@
-# UART-controlled 8×8 systolic matrix multiplier
+# UART-controlled 8×8 matrix multiplier
 
-Enter two **8×8 signed integer matrices** over a USB-to-TTL UART adapter, then print **C = A × B** in your terminal. A small **2×2 systolic array** computes all 16 output tiles on the Cyclone IV **EP4CE6E22C8** at 50 MHz.
+Enter two **8×8 signed integer matrices** over a USB-to-TTL UART adapter, then print **C = A × B** in your terminal. A conventional row-by-column multiplier computes the result on the Cyclone IV **EP4CE6E22C8** at 50 MHz.
+
+## System overview
+
+```mermaid
+flowchart LR
+    PC["PC terminal"] <-->|USB| ADAPTER["3.3 V USB-to-TTL adapter"]
+    ADAPTER -->|TXD| RX
+    TX -->|RXD| ADAPTER
+
+    subgraph FPGA["EP4CE6E22C8 - 50 MHz"]
+        RX["UART RX - pin 111"] --> PARSER["64-value INT16 parser"]
+        PARSER --> AB["A and B RAM"]
+        AB --> MAC["One multiply-accumulate unit"]
+        MAC --> C["C RAM - INT35"]
+        AB --> FORMAT["Decimal table formatter"]
+        C --> FORMAT
+        FORMAT --> TX["UART TX - pin 114"]
+        CONTROL["Control and switch debounce"] -->|Select A or B| PARSER
+        CONTROL -->|Start multiplication| MAC
+        CONTROL -->|Select table| FORMAT
+        CONTROL --> STATUS["Seven-segment stage and ready LEDs"]
+    end
+
+    DIP["DIP1 / DIP2 / DIP3"] --> CONTROL
+```
+
+The formatter reads the stored matrices and sends eight rows over UART, so the PC can inspect A, B and C. The LEDs indicate completed data; the seven-segment digit indicates the selected stage.
 
 ## Controls and status display
 
@@ -52,14 +79,14 @@ According to the board manual, pressing the red power selector selects USB power
 
 Copy this complete directory to the computer running Quartus, including the updated baud generator and new matrix core. Open [my_uart_top.qpf](my_uart_top.qpf), with device **EP4CE6E22C8** and top-level entity **my_uart_top**.
 
-The synthesis file list in [my_uart_top.qsf](my_uart_top.qsf) must contain all five files:
+The synthesis file list in [my_uart_top.qsf](my_uart_top.qsf) must contain all five files as `SYSTEMVERILOG_FILE` assignments:
 
 ```text
-my_uart_top.v
-my_uart_rx.v
-my_uart_tx.v
-speed_select.v
-matrix_systolic.v
+my_uart_top.sv
+my_uart_rx.sv
+my_uart_tx.sv
+speed_select.sv
+matrix_multiply.sv
 ```
 
 Run **Processing > Start Compilation**. In **Tools > Programmer**, select USB-Blaster, use **JTAG** mode, load the newly built `output_files/my_uart_top.sof`, select **Program/Configure**, and click **Start**. The board must be powered during programming. The `.sof` configuration is volatile and must be programmed again after a power cycle.
@@ -85,7 +112,7 @@ Select your USB-to-TTL adapter's actual COM port or Linux serial device.
 
 | Setting | Value |
 | --- | --- |
-| Baud rate | **9600** |
+| Baud rate | **9600** by default; must match the FPGA build |
 | Data bits / parity / stop bits | **8 / None / 1** |
 | Hardware/software flow control | **None** |
 | Send format | **Text / ASCII** |
@@ -93,6 +120,43 @@ Select your USB-to-TTL adapter's actual COM port or Linux serial device.
 | Local line editing | Enable in PuTTY if you want Backspace editing before Enter |
 
 Press and release the board's reset button on pin 25 after opening the terminal. Expect `READY` and a blank display.
+
+### Change the baud rate
+
+The baud rate is a **compile-time setting**. Change the `CLKS_PER_BIT` parameter in [my_uart_top.sv](my_uart_top.sv):
+
+```text
+CLKS_PER_BIT = round(50,000,000 / desired_baud)
+calculated_baud = 50,000,000 / CLKS_PER_BIT
+```
+
+Use the board's 50 MHz clock when calculating the divider:
+
+| Desired baud | `CLKS_PER_BIT` | Calculated baud at 50 MHz |
+| --- | --- | --- |
+| 9600 | 5208 | 9600.61 |
+| 19200 | 2604 | 19201.23 |
+| 38400 | 1302 | 38402.46 |
+| 57600 | 868 | 57603.69 |
+| 115200 | 434 | 115207.37 |
+
+For example, to select **115200 baud**:
+
+1. Change the parameter declaration near the start of `my_uart_top.sv` to:
+
+   ```systemverilog
+   parameter int CLKS_PER_BIT = 434,
+   ```
+
+2. Recompile `my_uart_top.qpf` and program the newly generated `output_files/my_uart_top.sof`.
+3. Set the PC terminal to **115200, 8N1**, with flow control disabled.
+4. Press reset and check `READY`, then load the identity-matrix example below and verify the returned tables.
+
+The top-level parameter is passed to **both** `speed_rx` and `speed_tx`. Editing only the default in `speed_select.sv` does not change this project, because `my_uart_top.sv` overrides it. The FPGA clock remains 50 MHz and the SDC clock period remains **20 ns** when changing only the baud rate.
+
+**Lower baud rates and counter width:** `speed_select.sv` currently declares `logic [12:0] count`, a 13-bit counter. It can represent a divider up to **8192** cycles per bit. For **4800 baud**, the divider is **10417**, so also widen that declaration to `logic [13:0] count` before rebuilding. In general, the counter must hold every value from zero through `CLKS_PER_BIT - 1`. All five table entries work with the existing 13-bit counter.
+
+The UART testbench has its own shortened `CLKS_PER_BIT = 32` setting. Changing the hardware default does not change that simulation setting. To simulate a chosen divider, update the local parameter in `my_uart_top_tb.sv` as well; its bit duration is derived automatically. Verify operation with your adapter after selecting a new baud rate.
 
 ## 4. Enter A, enter B, then print C
 
@@ -158,33 +222,35 @@ Press Enter after the final row if your paste does not include a trailing newlin
 
 ## 5. How multiplication works
 
-For each output position:
+The [matrix_multiply.sv](matrix_multiply.sv) core implements the traditional three-loop algorithm:
 
 ```text
-C[row,col] = A[row,0]*B[0,col] + A[row,1]*B[1,col] + ... + A[row,7]*B[7,col]
+for row = 0..7:
+    for col = 0..7:
+        sum = 0
+        for k = 0..7:
+            sum = sum + A[row,k] * B[k,col]
+        C[row,col] = sum
 ```
 
-The existing `software/matrix_baseline.sv` uses fixed MIF input memories and a single MAC. The board application uses [matrix_systolic.v](matrix_systolic.v), with runtime-written A/B memories and **four signed 16×16 MACs**. Its **35-bit signed accumulators** preserve the full sum of eight products, including results outside the signed 32-bit range. Output is signed decimal text without saturation or truncation.
+One signed **16×16 multiplier** and one **35-bit accumulator** calculate each dot product. All 64 output elements are stored in row order. The 35-bit sum preserves the full precision of eight signed INT16 products, including results outside the signed 32-bit range. UART output uses signed decimal text without saturation or truncation.
 
-A 2×2 tile computes `C[r,c]`, `C[r,c+1]`, `C[r+1,c]`, and `C[r+1,c+1]`. A values move right; B values move down:
+The control follows the existing `software/matrix_baseline.sv` pattern: `READ` waits for the synchronous A/B memory outputs, `MAC` adds one product, and `STORE` writes the sum after all eight terms. A complete multiplication takes **1088 clocks**, about **21.76 μs at 50 MHz**; UART input/output takes much longer.
 
 ```mermaid
-flowchart TD
-    A0["A row r"] --> P00["PE00"]
-    A1["A row r+1, delayed 1 step"] --> P10["PE10"]
-    B0["B column c"] --> P00
-    B1["B column c+1, delayed 1 step"] --> P01["PE01"]
-    P00 -->|A| P01
-    P00 -->|B| P10
-    P01 -->|B| P11["PE11"]
-    P10 -->|A| P11
+stateDiagram-v2
+    [*] --> IDLE
+    IDLE --> READ: start, clear row/col/k and sum
+    READ --> MAC: synchronous RAM operands ready
+    MAC --> READ: k less than 7, increment k
+    MAC --> STORE: eighth product added
+    STORE --> READ: next output element, clear k and sum
+    STORE --> IDLE: final element stored, done pulse
 ```
 
-The second row/column is skewed by one step so matching `k` values meet in each PE. Ten consecutive processing clocks cover eight input terms and two pipeline-drain steps. After each tile, the four sums are stored and the next tile starts with cleared accumulators. Sixteen tiles produce the entire 8×8 C matrix.
+A, B and C use three row-major RAM arrays with 64 elements each. Their sizes are 64×16, 64×16 and 64×35 bits. M9K attributes request embedded memories; confirm actual DSP/RAM use and 50 MHz timing in Quartus reports. There are no MIF dependencies: A and B are written through the UART input path.
 
-A is banked by row parity, B by column parity, and C by both parities. Synchronous reads and look-ahead prefetch supply two A values and two B values per clock. The core uses 13 clocks per tile including clear/read/store, or **208 clocks per multiplication** (about **4.16 μs at 50 MHz**). UART input/output takes much longer. M9K attributes request embedded memories; confirm actual DSP/RAM use and 50 MHz timing in Quartus reports.
-
-The core's synchronous read port selects **C=0, A=1, B=2** using `read_matrix`. `read_data` corresponds to `read_addr` and the selector sampled on the preceding rising edge. Input readback is used while the core is idle; during computation, its input-bank read ports serve the systolic datapath. One shared decimal formatter prints all three matrices without duplicating matrix storage.
+The synchronous read port selects **C=0, A=1, B=2** using `read_matrix`. `read_data` corresponds to `read_addr` and the selector sampled on the preceding rising edge. A/B readback is used while the core is idle; during computation, its input-memory reads serve the multiplier. One shared decimal formatter prints all three matrices without duplicating matrix storage.
 
 ## 6. Pin map and project files
 
@@ -203,38 +269,39 @@ Only DIG1 is enabled for stage 1/2/3; the other digits and decimal point stay of
 
 | File | Purpose |
 | --- | --- |
-| [my_uart_top.v](my_uart_top.v) | Switch debounce, UART parser, A/B/C table printing, ready LEDs and stage digit |
-| [matrix_systolic.v](matrix_systolic.v) | Banked A/B/C memories, matrix readback and 2×2 systolic datapath |
-| [my_uart_rx.v](my_uart_rx.v), [my_uart_tx.v](my_uart_tx.v) | UART byte reception/transmission |
-| [speed_select.v](speed_select.v) | UART timing; default 5208 clock cycles per bit |
+| [my_uart_top.sv](my_uart_top.sv) | Switch debounce, UART parser, A/B/C table printing, ready LEDs and stage digit |
+| [matrix_multiply.sv](matrix_multiply.sv) | A/B/C memories, readback and a single multiply-accumulate datapath |
+| [my_uart_rx.sv](my_uart_rx.sv), [my_uart_tx.sv](my_uart_tx.sv) | UART byte reception/transmission |
+| [speed_select.sv](speed_select.sv) | UART timing; RX/TX use the top-level baud divider |
 | [my_uart_top.sdc](my_uart_top.sdc) | 50 MHz and asynchronous-interface timing constraints |
-| [matrix_systolic_tb.sv](matrix_systolic_tb.sv) | Arithmetic, A/B/C readback, signed values, repeated runs and reset tests |
-| [my_uart_top_tb.v](my_uart_top_tb.v) | UART tables, CR/LF rows, input errors, ready LEDs, switches and status digit |
+| [matrix_multiply_tb.sv](matrix_multiply_tb.sv) | Arithmetic, A/B/C readback, signed values, repeated runs and reset tests |
+| [my_uart_top_tb.sv](my_uart_top_tb.sv) | UART tables, CR/LF rows, input errors, ready LEDs, switches and status digit |
 
 ## 7. Simulation
 
 With Icarus Verilog installed, run from this directory:
 
 ```bash
-iverilog -g2012 -Wall -s matrix_systolic_tb -o /tmp/matrix_core_tb \
-  matrix_systolic_tb.sv matrix_systolic.v
+iverilog -g2012 -Wall -s matrix_multiply_tb -o /tmp/matrix_core_tb \
+  matrix_multiply_tb.sv matrix_multiply.sv
 vvp /tmp/matrix_core_tb
 
 iverilog -g2012 -Wall -s my_uart_top_tb -o /tmp/matrix_uart_tb \
-  my_uart_top_tb.v my_uart_top.v my_uart_rx.v my_uart_tx.v \
-  speed_select.v matrix_systolic.v
+  my_uart_top_tb.sv my_uart_top.sv my_uart_rx.sv my_uart_tx.sv \
+  speed_select.sv matrix_multiply.sv
 vvp /tmp/matrix_uart_tb
 ```
 
 The UART test shortens the baud and debounce intervals to keep simulation fast. Hardware defaults remain 9600 baud and 10 ms. Both tests use independent dot-product oracles, cover zero/identity/signed extremes, and fail with `$fatal` on an error. Testbench files are excluded from synthesis.
 
-Both testbenches passed with **Icarus Verilog 12.0**. The synthesis sources also passed Verilog-2005 elaboration. Quartus fitting, resource use, 50 MHz timing and physical-board operation still require verification on your setup.
+All RTL and testbench sources use SystemVerilog; compile with `-g2012`. Quartus fitting, resource use, 50 MHz timing and physical-board operation still require verification on your setup.
 
 ## Troubleshooting
 
-- **Error 12006 / undefined module:** open the supplied `.qpf` and check **Project > Add/Remove Files in Project** for all five synthesis files. `speed_select.v` and `matrix_systolic.v` must both be present. Importing only the board QSF adds pin assignments, not RTL sources.
-- **Unknown `CLKS_PER_BIT` parameter:** copy the updated `speed_select.v` along with the other files; the original vendor version has no parameter.
-- **No terminal output:** check adapter RXD → 114, GND, selected COM port, 9600/8N1, board power and the newly programmed `.sof`; press reset after opening the terminal.
+- **Error 12006 / undefined module:** open the supplied `.qpf` and check **Project > Add/Remove Files in Project** for all five synthesis files. `speed_select.sv` and `matrix_multiply.sv` must both be present. Importing only the board QSF adds pin assignments, not RTL sources.
+- **Unknown `CLKS_PER_BIT` parameter:** copy the updated `speed_select.sv` along with the other files; the original vendor version has no parameter.
+- **No terminal output:** check adapter RXD → 114, GND, selected COM port, matching baud/8N1 settings, board power and the newly programmed `.sof`; press reset after opening the terminal.
+- **Garbage after changing baud:** confirm the top-level divider, reprogrammed `.sof` and PC terminal baud agree. If using a divider above 8192, widen the baud counter as described above.
 - **No `A OK` / `B OK`:** check for exactly 64 values, the trailing Enter, TXD → 111, and 3.3 V logic. The acknowledgement follows the full matrix table, so allow it to finish printing. Wait for the matrix prompt before sending.
 - **Wrong stage or unexpected reload:** keep only one DIP switch ON and leave S1–S4 released. DIP4 has no function.
 - **No new C after DONE:** DIP3 must go OFF and ON again to request a new result.
