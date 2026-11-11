@@ -1,24 +1,24 @@
 `timescale 1ns / 1ps
 
 module matrix_multiply_tb;
-reg clk = 0;
+logic clk = 0;
 always #10 clk = !clk;
-reg rst_n = 0, load_we = 0, load_b = 0, start = 0;
-reg [5:0] load_addr = 0, read_addr = 0;
-reg [1:0] read_matrix = 0;
-reg signed [15:0] load_data = 0;
-wire busy, done;
-wire signed [34:0] read_data;
-reg signed [15:0] a [0:63], b [0:63];
+logic rst_n = 0, load_we = 0, load_b = 0, start = 0;
+logic [5:0] load_addr = 0, read_addr = 0;
+logic [1:0] read_matrix = 0;
+logic signed [15:0] load_data = 0;
+logic busy, done;
+logic signed [34:0] read_data;
+logic signed [15:0] a [0:63], b [0:63];
 longint signed expected [0:63];
-integer row, col, k, i, test_case, cycles, seed = 71;
+int row, col, k, i, test_case, cycles, seed = 71;
 
 matrix_multiply dut(.*);
 
 task load_matrices;
     begin
-        for (integer matrix_b = 0; matrix_b < 2; matrix_b++) begin
-            for (integer address = 0; address < 64; address++) begin
+        for (int matrix_b = 0; matrix_b < 2; matrix_b++) begin
+            for (int address = 0; address < 64; address++) begin
                 @(negedge clk);
                 load_we = 1;
                 load_b = matrix_b;
@@ -34,10 +34,10 @@ endtask
 task check_input_readback;
     longint signed value;
     begin
-        for (integer matrix_id = 1; matrix_id <= 2; matrix_id++) begin
+        for (int matrix_id = 1; matrix_id <= 2; matrix_id++) begin
             @(negedge clk);
             read_matrix = matrix_id;
-            for (integer address = 0; address < 64; address++) begin
+            for (int address = 0; address < 64; address++) begin
                 @(negedge clk);
                 read_addr = address;
                 @(negedge clk);
