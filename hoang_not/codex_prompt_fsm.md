@@ -1,6 +1,6 @@
 # Codex Task — Implement FSM-Based 8×8 Matrix Multiplication Accelerator
 
-You are an FPGA RTL engineer. Implement a complete, synthesizable **8×8 signed INT16 Matrix Multiplication Accelerator** using Verilog HDL.
+You are an FPGA RTL engineer. Implement a complete, synthesizable **8×8 signed INT16 Matrix Multiplication Accelerator** using SystemVerilog.
 
 The target FPGA is **Intel/Altera Cyclone IV EP4CE6**, but hardware pin assignments and the Quartus `.qsf` file will be added later.
 
@@ -45,7 +45,7 @@ Requirements:
 - No CPU required.
 - No vendor-specific IP unless strictly necessary.
 
-Use **Verilog-2001** for compatibility with Quartus.
+Use **SystemVerilog** supported by Quartus. Keep all RTL and testbench sources in `.sv` files.
 
 ## 2. Architecture
 
@@ -53,17 +53,17 @@ Implement these modules:
 
 ```text
 rtl/
-├── mac.v
-├── pe_array.v
-├── matrix_controller.v
-├── matrix_buffer.v
-├── matrix_accelerator.v
-└── standalone_top.v
+├── mac.sv
+├── pe_array.sv
+├── matrix_controller.sv
+├── matrix_buffer.sv
+├── matrix_accelerator.sv
+└── standalone_top.sv
 
 tb/
-├── tb_mac.v
-├── tb_pe_array.v
-└── tb_matrix_accelerator.v
+├── tb_mac.sv
+├── tb_pe_array.sv
+└── tb_matrix_accelerator.sv
 
 scripts/
 ├── golden_model.py
@@ -169,7 +169,7 @@ B: 64 × 16 bits
 C: 64 × 35 bits
 ```
 
-Use synthesizable Verilog arrays.
+Use synthesizable SystemVerilog arrays.
 
 Support loading A and B through a simple write interface:
 
@@ -196,17 +196,17 @@ Avoid assuming that one simple dual-port RAM can supply four independent reads p
 
 Implement a reusable module:
 
-```verilog
+```systemverilog
 module matrix_accelerator (
-    input wire clk,
-    input wire rst_n,
-    input wire start,
+    input logic clk,
+    input logic rst_n,
+    input logic start,
 
     // Input matrix write interface
     // Output matrix read interface
 
-    output wire busy,
-    output wire done
+    output logic busy,
+    output logic done
 );
 ```
 
@@ -224,7 +224,7 @@ Keep this module independent of ROM, LED, UART, and PicoRV32.
 
 ### 2.6 Standalone Top
 
-Implement `standalone_top.v` for the FSM-only phase.
+Implement `standalone_top.sv` for the FSM-only phase.
 
 It should:
 
@@ -317,7 +317,7 @@ Requirements:
 - Generate expected results for the testbench.
 - Support a repeatable random seed.
 
-The golden model must be independent of the Verilog implementation.
+The golden model must be independent of the SystemVerilog implementation.
 
 ## 5. Simulation Script
 
@@ -347,7 +347,7 @@ Do not require a Quartus license or FPGA hardware for simulation.
 
 Follow these rules:
 
-- Use simple, synthesizable Verilog-2001.
+- Use simple, synthesizable SystemVerilog with `logic`, `always_ff` and `always_comb`.
 - Keep each module focused on one responsibility.
 - Prefer straightforward FSM logic.
 - Avoid unnecessary helper modules and complicated abstractions.
