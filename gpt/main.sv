@@ -1,27 +1,30 @@
 
 module matrix_board_top (
-    input  wire clk,
-    input  wire rst_n,
-    output wire led_pass_n,
-    output wire led_fail_n
+    input  logic clk,
+    input  logic rst_n,
+    output logic led_pass_n,
+    output logic led_fail_n
 );
 
-    reg start;
-    reg started;
-    reg checking;
-    reg finished;
-    reg mismatch;
+    logic start;
+    logic started;
+    logic checking;
+    logic finished;
+    logic mismatch;
 
-    reg [5:0] c_addr;
-    reg [10:0] timer;
+    logic [5:0] c_addr;
+    logic [10:0] timer;
 
-    wire [35:0] c_data;
-    wire done;
+    logic [35:0] c_data;
+    logic done;
 
-    wire signed [35:0] row_idx = {33'b0, c_addr[5:3]};
-    wire signed [35:0] col_idx = {33'b0, c_addr[2:0]};
+    logic signed [35:0] row_idx;
+    assign row_idx = {33'b0, c_addr[5:3]};
+    logic signed [35:0] col_idx;
+    assign col_idx = {33'b0, c_addr[2:0]};
 
-    wire signed [35:0] expected =
+    logic signed [35:0] expected;
+    assign expected =
         36'sd64 * row_idx * col_idx
         - 36'sd256 * row_idx
         - 36'sd228 * col_idx
@@ -36,7 +39,7 @@ module matrix_board_top (
         .done(done)
     );
 
-    always @(posedge clk or negedge rst_n) begin
+    always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             start    <= 0;
             started  <= 0;
